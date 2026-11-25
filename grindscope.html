@@ -2302,11 +2302,6 @@ window.addEventListener('resize', debounce(() => {
   setStatus('✓ 준비 완료 — 사진을 선택하세요' + (memoryOnly ? ' (이 환경에선 기록 저장소를 못 써요. 내보내기를 이용하세요)' : ''), 'ok');
 })();
 
-// 터치 진단: 어떤 요소가 눌렸는지 상태 표시줄에 표시
-document.addEventListener('pointerup', e => {
-  const t = e.target; const id = t.id || (t.closest && t.closest('button,label,input') && (t.closest('button,label,input').id || t.closest('button,label,input').textContent.trim().slice(0, 8))) || t.tagName;
-  if (t.closest && t.closest('.filebtn,.plainpick,button')) setStatus('버튼 눌림: ' + id, 'ok');
-}, true);
 
 </script>
 </body>
