@@ -88,6 +88,10 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
 .modal .box h2{margin:0 0 8px;font-size:16px}
 .modal .box p{margin:0 0 8px}
 .modal .box input{margin-bottom:8px}
+.sugg{position:fixed;z-index:70;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);max-height:260px;overflow-y:auto;padding:4px 0}
+.sugg button{display:block;width:100%;text-align:left;padding:11px 14px;border:0;background:none;color:inherit;font:inherit;font-size:15px}
+.sugg button:active,.sugg button:hover{background:var(--bg)}
+.sugg small{color:var(--mute);margin-left:6px;font-size:12px}
 .toast{position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom));transform:translateX(-50%);background:#222;color:#fff;padding:9px 14px;border-radius:10px;font-size:13px;z-index:50;opacity:0;pointer-events:none;transition:opacity .2s}
 .toast.on{opacity:1}
 .drop{border:2px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--mute)}
@@ -178,14 +182,14 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
   <div class="panel hidden" id="panelSave">
     <h2>4. 기록 저장</h2>
     <div class="row">
-      <div><label>그라인더</label><input type="text" id="mGrinder" list="dlGrinder" placeholder="예: A4Z"></div>
-      <div><label>설정 (클릭/눈금)</label><input type="text" id="mSetting" placeholder="예: 160클릭"></div>
+      <div><label>그라인더</label><input type="text" id="mGrinder" data-sg="grinder" autocomplete="off" placeholder="예: Yehjen 98L"></div>
+      <div><label>버</label><input type="text" id="mBurr" data-sg="burr" autocomplete="off" placeholder="예: Lebrew 필터 버"></div>
     </div>
     <div class="row" style="margin-top:8px">
-      <div><label>원두</label><input type="text" id="mBeans" placeholder="예: 케냐"></div>
-      <div><label>메모</label><input type="text" id="mNote" placeholder="선택"></div>
+      <div><label>분쇄도</label><input type="text" id="mSetting" data-sg="setting" autocomplete="off" placeholder="예: 12"></div>
+      <div><label>원두</label><input type="text" id="mBeans" data-sg="beans" autocomplete="off" placeholder="예: 케냐"></div>
     </div>
-    <datalist id="dlGrinder"></datalist>
+    <div style="margin-top:8px"><label>메모</label><input type="text" id="mNote" placeholder="선택"></div>
     <div class="btns" style="margin-top:12px">
       <button class="btn primary" id="btnSave">기록에 저장</button>
       <button class="btn" id="btnPng">PNG 저장</button>
@@ -1350,7 +1354,7 @@ function drawChart(cv, cfg, opt = {}) {
   const nb = edges.length - 1;
 
   const legendRows = series.length > 1 ? Math.ceil(series.length / (cssW > 520 ? 3 : 2)) : 0;
-  const m = { l: 46 * (FS / 12), r: (cfg.showCum || kind === 'cum') ? 44 * (FS / 12) : 16, t: 18 + legendRows * (FS + 8) + (opt.title ? FS + 18 : 0), b: 42 * (FS / 12) };
+  const m = { l: 46 * (FS / 12), r: (cfg.showCum || kind === 'cum') ? 44 * (FS / 12) : 22 * (FS / 12), t: 18 + legendRows * (FS + 8) + (opt.title ? FS + 18 : 0), b: 42 * (FS / 12) };
   const pw = cssW - m.l - m.r, ph = cssH - m.t - m.b;
   const la = Math.log(edges[0]), lb = Math.log(edges[nb]);
   const X = v => m.l + (Math.log(v) - la) / (lb - la) * pw;
@@ -1480,6 +1484,62 @@ function drawSingle() {
 }
 
 // prompt()/confirm()은 일부 환경에서 막혀서 화면 안 대화상자로 대체
+/* ---------- 입력 추천 목록 (한 번 쓴 그라인더·버·분쇄도·원두를 눌러서 고르기) ---------- */
+let suggBox = null, suggPlace = null, suggOwner = null;
+function suggValues(key, grinder) {
+  // 최근 기록 순, 같은 그라인더에서 쓴 값을 먼저
+  const seen = new Map();
+  const recs = S.records.slice().sort((a, b) => b.ts - a.ts);
+  for (const r of recs) {
+    const v = (r[key] || '').trim(); if (!v) continue;
+    const pri = grinder && key !== 'grinder' && r.grinder === grinder ? 0 : 1;
+    const o = seen.get(v);
+    if (!o) seen.set(v, { v, pri }); else o.pri = Math.min(o.pri, pri);
+  }
+  return [...seen.values()].sort((a, b) => a.pri - b.pri);
+}
+function hideSuggest() { if (suggBox) { suggBox.parentNode && suggBox.parentNode.removeChild(suggBox); suggBox = null; } }
+function attachSuggest(inp, key, getGrinder) {
+  if (!inp || inp.dataset.sgOn) return;
+  inp.dataset.sgOn = '1';
+  const show = () => {
+    hideSuggest();
+    const q = inp.value.trim().toLowerCase();
+    let list = suggValues(key, getGrinder ? getGrinder() : '');
+    if (q && !list.some(o => o.v.toLowerCase() === q)) list = list.filter(o => o.v.toLowerCase().includes(q));
+    list = list.slice(0, 12);
+    if (!list.length) return;
+    suggBox = document.createElement('div'); suggBox.className = 'sugg'; suggOwner = inp;
+    // 입력창 바로 아래(공간이 없으면 위)에 붙이기 — 스크롤·키보드로 화면이 바뀌면 다시 계산
+    suggPlace = () => {
+      if (!suggBox) return;
+      const rc = inp.getBoundingClientRect(), vh = (window.visualViewport ? visualViewport.height : innerHeight);
+      suggBox.style.left = rc.left + 'px'; suggBox.style.width = Math.max(rc.width, 180) + 'px';
+      const below = vh - rc.bottom;
+      if (below < 200 && rc.top > below) { suggBox.style.top = ''; suggBox.style.bottom = (innerHeight - rc.top + 4) + 'px'; suggBox.style.maxHeight = Math.min(260, rc.top - 8) + 'px'; }
+      else { suggBox.style.bottom = ''; suggBox.style.top = (rc.bottom + 4) + 'px'; suggBox.style.maxHeight = Math.min(260, below - 8) + 'px'; }
+    };
+    suggPlace();
+    suggBox.innerHTML = list.map(o => `<button type="button" data-v="${esc(o.v)}">${esc(o.v)}${o.pri === 0 ? '<small>이 그라인더</small>' : ''}</button>`).join('');
+    suggBox.addEventListener('pointerdown', e => e.preventDefault()); // 입력창 포커스 유지
+    suggBox.addEventListener('click', e => {
+      const b = e.target.closest('button[data-v]'); if (!b) return;
+      inp.value = b.dataset.v; hideSuggest();
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    document.body.appendChild(suggBox);
+  };
+  inp.addEventListener('click', () => { if (!(suggBox && suggOwner === inp)) show(); });  // 누를 때만 (자동 포커스로는 안 뜸)
+  inp.addEventListener('input', show);
+  inp.addEventListener('blur', () => setTimeout(() => { if (suggOwner === inp && document.activeElement !== inp) hideSuggest(); }, 150));
+  inp.addEventListener('keydown', e => { if (e.key === 'Escape') hideSuggest(); });
+}
+for (const inp of $$('input[data-sg]')) attachSuggest(inp, inp.dataset.sg, () => $('#mGrinder').value.trim());
+addEventListener('scroll', e => { if (suggBox && !suggBox.contains(e.target)) suggPlace(); }, true);
+addEventListener('resize', () => suggPlace && suggPlace());
+document.addEventListener('pointerdown', e => { if (suggBox && !suggBox.contains(e.target) && e.target !== suggOwner) hideSuggest(); }, true);
+if (window.visualViewport) visualViewport.addEventListener('resize', () => suggPlace && suggPlace());
+
 function askModal({ title, message, fields = [], ok = '확인', danger = false }) {
   return new Promise(res => {
     const m = $('#modal'), box = $('#modalBox');
@@ -1487,16 +1547,18 @@ function askModal({ title, message, fields = [], ok = '확인', danger = false }
       fields.map((f, i) => `<label for="mf${i}">${esc(f.label)}</label><input type="text" id="mf${i}" value="${esc(f.value || '')}">`).join('') +
       `<div class="btns" style="margin-top:12px"><button class="btn ${danger ? 'danger' : 'primary'}" id="mOk">${esc(ok)}</button><button class="btn" id="mCancel">취소</button></div>`;
     m.classList.remove('hidden');
-    const close = v => { m.classList.add('hidden'); res(v); };
+    const close = v => { hideSuggest(); m.classList.add('hidden'); res(v); };
     $('#mOk').onclick = () => close(fields.map((f, i) => $('#mf' + i).value));
     $('#mCancel').onclick = () => close(null);
     m.onclick = e => { if (e.target === m) close(null); };
+    const gi = fields.findIndex(x => x.sg === 'grinder');
+    fields.forEach((f, i) => { if (f.sg) attachSuggest($('#mf' + i), f.sg, () => gi >= 0 ? $('#mf' + gi).value.trim() : ''); });
     if (fields.length) $('#mf0').focus();
   });
 }
 
 function metaLabel(m) {
-  const t = [m.grinder, m.setting].filter(Boolean).join(' ');
+  const t = [m.grinder, m.burr ? `(${m.burr})` : '', m.setting].filter(Boolean).join(' ');
   return t || m.beans || (m.ts ? fmtDate(m.ts) : '');
 }
 
@@ -1653,6 +1715,7 @@ function prefillMeta() {
   try {
     const m = JSON.parse(localStorage.getItem('gs_meta') || '{}');
     if (!$('#mGrinder').value) $('#mGrinder').value = m.grinder || '';
+    if (!$('#mBurr').value) $('#mBurr').value = m.burr || '';
     if (!$('#mBeans').value) $('#mBeans').value = m.beans || '';
   } catch (e) { }
 }
@@ -1670,7 +1733,7 @@ async function saveRecord() {
   if (!S.lastD || !S.lastD.length) { toast('저장할 입자가 없어요'); return; }
   const rec = {
     id: uid(), ts: Date.now(),
-    grinder: $('#mGrinder').value.trim(), setting: $('#mSetting').value.trim(),
+    grinder: $('#mGrinder').value.trim(), burr: $('#mBurr').value.trim(), setting: $('#mSetting').value.trim(),
     beans: $('#mBeans').value.trim(), note: $('#mNote').value.trim(),
     coasterMm: +$('#coasterMm').value || 104, umPerPx: +(S.geo.mmPerPx * 1000).toFixed(2),
     T: +$('#rT').value / 100, split: +$('#rS').value / 100,
@@ -1678,7 +1741,7 @@ async function saveRecord() {
     d: Array.from(S.lastD, v => +v.toFixed(1)),
     thumb: makeThumb(),
   };
-  try { localStorage.setItem('gs_meta', JSON.stringify({ grinder: rec.grinder, beans: rec.beans })); } catch (e) { }
+  try { localStorage.setItem('gs_meta', JSON.stringify({ grinder: rec.grinder, burr: rec.burr, beans: rec.beans })); } catch (e) { }
   S.records.unshift(rec);
   if (!memoryOnly) { try { await DB.put(rec); } catch (e) { memoryOnly = true; toast('이 브라우저는 저장소를 못 써요. 내보내기를 꼭 해주세요'); } }
   refreshRecords();
@@ -1692,7 +1755,6 @@ function refreshRecords() {
   const f = $('#fGrinder'), cur = f.value;
   f.innerHTML = '<option value="">전체</option>' + grinders.map(g => `<option>${esc(g)}</option>`).join('');
   f.value = grinders.includes(cur) ? cur : '';
-  $('#dlGrinder').innerHTML = grinders.map(g => `<option value="${esc(g)}">`).join('');
   renderRecords();
 }
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -1723,10 +1785,11 @@ $('#recList').addEventListener('click', async e => {
   const r = S.records.find(x => x.id === b.closest('.rec').dataset.id); if (!r) return;
   const v = await askModal({
     title: '기록 편집', ok: '저장',
-    fields: [{ label: '그라인더', value: r.grinder }, { label: '설정 (클릭/눈금)', value: r.setting }, { label: '원두', value: r.beans }, { label: '메모', value: r.note }],
+    fields: [{ label: '그라인더', value: r.grinder, sg: 'grinder' }, { label: '버', value: r.burr, sg: 'burr' }, { label: '분쇄도', value: r.setting, sg: 'setting' },
+      { label: '원두', value: r.beans, sg: 'beans' }, { label: '메모', value: r.note }],
   });
   if (!v) return;
-  Object.assign(r, { grinder: v[0].trim(), setting: v[1].trim(), beans: v[2].trim(), note: v[3].trim() });
+  Object.assign(r, { grinder: v[0].trim(), burr: v[1].trim(), setting: v[2].trim(), beans: v[3].trim(), note: v[4].trim() });
   if (!memoryOnly) { try { await DB.put(r); } catch (err) { } }
   refreshRecords();
 });
@@ -1749,14 +1812,15 @@ $('#btnMerge').onclick = async () => {
   const v = await askModal({
     title: `${recs.length}장 합치기`, ok: '합쳐서 저장',
     message: '입자 목록을 하나로 합쳐 D값을 다시 계산해요. 원본 기록은 그대로 남아요.',
-    fields: [{ label: '그라인더', value: same('grinder') ? recs[0].grinder : '' }, { label: '설정 (클릭/눈금)', value: same('setting') ? recs[0].setting : '' },
-      { label: '원두', value: same('beans') ? recs[0].beans : '' }, { label: '메모', value: `${recs.length}장 합침` }],
+    fields: [{ label: '그라인더', value: same('grinder') ? recs[0].grinder : '', sg: 'grinder' }, { label: '버', value: same('burr') ? recs[0].burr : '', sg: 'burr' },
+      { label: '분쇄도', value: same('setting') ? recs[0].setting : '', sg: 'setting' },
+      { label: '원두', value: same('beans') ? recs[0].beans : '', sg: 'beans' }, { label: '메모', value: `${recs.length}장 합침` }],
   });
   if (!v) return;
   const parts = recs.map(r => { const s = Core.stats(r.d, finesUm()); return { n: s.n, d10: s.d10, d50: s.d50, d90: s.d90, fines: s.finesVol, ts: r.ts }; });
   const d = [].concat(...recs.map(r => r.d));
   const rec = {
-    id: uid(), ts: Date.now(), grinder: v[0].trim(), setting: v[1].trim(), beans: v[2].trim(), note: v[3].trim(),
+    id: uid(), ts: Date.now(), grinder: v[0].trim(), burr: v[1].trim(), setting: v[2].trim(), beans: v[3].trim(), note: v[4].trim(),
     coasterMm: recs[0].coasterMm, umPerPx: +(recs.reduce((a, r) => a + (r.umPerPx || 0), 0) / recs.length).toFixed(2),
     T: recs[0].T, split: recs[0].split, nTotal: recs.reduce((a, r) => a + (r.nTotal || 0), 0), nExcl: recs.reduce((a, r) => a + (r.nExcl || 0), 0),
     d, thumb: recs[0].thumb, merged: parts.length, parts,
@@ -1819,11 +1883,11 @@ $('#btnExpCsv').onclick = () => {
   const recs = S.sel.size ? S.records.filter(r => S.sel.has(r.id)) : S.records;
   if (!recs.length) { toast('내보낼 기록이 없어요'); return; }
   const fu = finesUm();
-  const head = ['날짜', '그라인더', '설정', '원두', '메모', '입자수', 'D10(µm)', 'D50(µm)', 'D90(µm)', '평균(µm,개수)', 'span', `미분<${fu}µm(부피%)`, 'D10면적', 'D50면적', 'D90면적', '코스터mm', 'µm/픽셀'];
+  const head = ['날짜', '그라인더', '버', '분쇄도', '원두', '메모', '입자수', 'D10(µm)', 'D50(µm)', 'D90(µm)', '평균(µm,개수)', 'span', `미분<${fu}µm(부피%)`, 'D10면적', 'D50면적', 'D90면적', '코스터mm', 'µm/픽셀'];
   const q = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
   const rows = recs.map(r => {
     const st = Core.stats(r.d, fu), sa = Core.stats(r.d, fu, 'area');
-    return [fmtDate(r.ts), r.grinder, r.setting, r.beans, r.note, st.n, fmt(st.d10, 1), fmt(st.d50, 1), fmt(st.d90, 1), fmt(st.mean, 1), fmt(st.span, 3), fmt(st.finesVol, 2), fmt(sa.d10, 1), fmt(sa.d50, 1), fmt(sa.d90, 1), r.coasterMm, r.umPerPx].map(q).join(',');
+    return [fmtDate(r.ts), r.grinder, r.burr, r.setting, r.beans, r.note, st.n, fmt(st.d10, 1), fmt(st.d50, 1), fmt(st.d90, 1), fmt(st.mean, 1), fmt(st.span, 3), fmt(st.finesVol, 2), fmt(sa.d10, 1), fmt(sa.d50, 1), fmt(sa.d90, 1), r.coasterMm, r.umPerPx].map(q).join(',');
   });
   downloadBlob(new Blob(['﻿' + [head.map(q).join(','), ...rows].join('\n')], { type: 'text/csv' }), 'grindscope-summary.csv');
 };
@@ -1855,20 +1919,36 @@ function exportResultCard(how) {
   const W = 1080, P = 48, GAP = 20, CH = 150, CW = (W - 2 * P - GAP) / 2;
   const chartH = 640;
   const items = resultItems(st), rows = Math.ceil(items.length / 2);
-  const title = [$('#mGrinder').value.trim(), $('#mSetting').value.trim()].filter(Boolean).join(' ') || '입자 분포';
+  const val = id => $(id).value.trim();
+  const title = [val('#mGrinder'), val('#mSetting')].filter(Boolean).join(' ') || '입자 분포';
   const BL = { vol: '부피', area: '면적', num: '개수' }[S.mode];
-  const sub = [$('#mBeans').value.trim(), fmtDate(Date.now()), `${BL} 기준`, $('#mNote').value.trim()].filter(Boolean).join(' · ');
   const pr = params();
-  const foot = [...(S.lastNotes || []), `감도 ${Math.round(pr.T * 100)} · 분리 ${Math.round(pr.split * 100)}`].join(' · ');
-  const yCards = 190, yNote = yCards + rows * (CH + GAP) + 6, yChart = yNote + 50, H = yChart + chartH + 90;
+  // 항목별 정보 표 (빈 칸은 뺌) — 그라인더·분쇄도는 크게
+  const info = [
+    ['그라인더', val('#mGrinder'), true], ['분쇄도', val('#mSetting'), true], ['버', val('#mBurr')],
+    ['원두', val('#mBeans')], ['메모', val('#mNote')],
+    ['측정', `${fmtDate(Date.now())} · ${BL} 기준 · 감도 ${Math.round(pr.T * 100)} / 분리 ${Math.round(pr.split * 100)}`],
+  ].filter(r => r[1]);
+  const rowH = r => r[2] ? 66 : 46;
+  const infoH = info.reduce((a, r) => a + rowH(r), 0);
+  const foot = (S.lastNotes || []).join(' · ');
+  const yInfo = P + 44, yCards = yInfo + infoH + 24, yNote = yCards + rows * (CH + GAP) + 6, yChart = yNote + 50, H = yChart + chartH + 90;
 
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d');
   g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
   g.textBaseline = 'top'; g.textAlign = 'left';
-  g.fillStyle = C.mute; g.font = `600 26px ${FONT}`; g.fillText('GrindScope', P, P);
-  g.fillStyle = C.ink; g.font = `700 52px ${FONT}`; g.fillText(title, P, P + 38, W - 2 * P);
-  g.fillStyle = C.mute; g.font = `26px ${FONT}`; g.fillText(sub, P, P + 100, W - 2 * P);
+  g.fillStyle = C.mute; g.font = `600 26px ${FONT}`; g.fillText('GrindScope · 입자 분석 결과', P, P);
+  let y = yInfo;
+  const KW = 170;
+  for (const r of info) {
+    const big = !!r[2], h = rowH(r);
+    g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(P, y + h - 1); g.lineTo(W - P, y + h - 1); g.stroke();
+    g.fillStyle = C.mute; g.font = `${big ? 28 : 24}px ${FONT}`; g.fillText(r[0], P + 4, y + (big ? 18 : 11));
+    g.fillStyle = big ? C.ink : C.ink; g.font = `${big ? '700 46px' : '500 28px'} ${FONT}`;
+    g.fillText(r[1], P + KW, y + (big ? 8 : 8), W - 2 * P - KW);
+    y += h;
+  }
 
   const rr = (x, y, w, h, r) => {
     g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
@@ -1881,7 +1961,7 @@ function exportResultCard(how) {
     g.fillText(it.v, x + 28, y + 26, CW - 56);
     g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.fillText(it.l, x + 28, y + CH - 50, CW - 56);
   });
-  g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.fillText(foot, P, yNote, W - 2 * P);
+  g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.fillText(foot, P, yNote, W - 2 * P);  // 1픽셀·제외·분석 영역
 
   const ch = document.createElement('canvas');
   drawChart(ch, singleCfg(), {
@@ -1904,13 +1984,58 @@ function pngSingle(how) {
 }
 $('#btnPng').onclick = () => pngSingle('save');
 $('#btnPngShare').onclick = () => pngSingle('share');
+// 비교 PNG: 그래프 + 기록별 정보·D값 표
 function pngCmp(how) {
   const ser = cmpSeries(); if (!ser.length) return;
   const cfg = cmpCfg(ser);
-  if (cfg.focus) {
-    const st = Core.stats(cfg.focus.d, finesUm(), S.cmpMode);
-    exportChartPng(cfg, `${cfg.focus.label} — D50 ${Math.round(st.d50)}µm · span ${st.span.toFixed(2)}`, 'grind-distribution.png', how);
-  } else exportChartPng(cfg, '그라인더 입자 분포 비교', 'grind-compare.png', how);
+  const rows = cfg.focus ? [cfg.focus] : ser;
+  const FONT = '-apple-system,"Pretendard","Noto Sans KR",system-ui,sans-serif';
+  const C = { bg: '#ffffff', ink: '#26221d', mute: '#7a7268', line: '#e5dfd6', head: '#f6f3ee' };
+  const W = 1600, P = 40, chartH = 820, RH = 56, HH = 52;
+  const fu = finesUm(), BL = { vol: '부피', area: '면적', num: '개수' }[S.cmpMode];
+  const title = cfg.focus ? (metaLabel(cfg.focus.rec) || '입자 분포') : '그라인더 입자 분포 비교';
+  const cols = [
+    { h: '', w: 34 }, { h: '그라인더', w: 250, k: 'grinder' }, { h: '버', w: 230, k: 'burr' }, { h: '분쇄도', w: 120, k: 'setting' },
+    { h: '원두', w: 170, k: 'beans' }, { h: 'D10', w: 110, n: 1 }, { h: 'D50', w: 120, n: 1 }, { h: 'D90', w: 110, n: 1 },
+    { h: 'span', w: 100, n: 1 }, { h: `미분<${fu}`, w: 140, n: 1 }, { h: '입자수', w: 106, n: 1 },
+  ];
+  const yChart = P + 64, yTab = yChart + chartH + 24, H = yTab + HH + rows.length * RH + 70;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'top'; g.textAlign = 'left';
+  g.fillStyle = C.ink; g.font = `700 40px ${FONT}`; g.fillText(title, P, P, W - 2 * P - 360);
+  g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.textAlign = 'right';
+  g.fillText(`${BL} 기준 · µm · ${fmtDate(Date.now())}`, W - P, P + 12); g.textAlign = 'left';
+  const ch = document.createElement('canvas');
+  drawChart(ch, cfg, { w: W - 2 * P, h: chartH, dpr: 1, font: 22, lw: 3, theme: { bg: C.bg, ink: C.ink, mute: C.mute, grid: '#e9e3da' } });
+  g.drawImage(ch, P, yChart);
+  // 표
+  g.fillStyle = C.head; g.fillRect(P, yTab, W - 2 * P, HH);
+  g.textBaseline = 'middle';
+  let x = P;
+  for (const c of cols) {
+    g.fillStyle = C.mute; g.font = `600 22px ${FONT}`; g.textAlign = c.n ? 'right' : 'left';
+    g.fillText(c.h, c.n ? x + c.w - 12 : x + 10, yTab + HH / 2); x += c.w;
+  }
+  rows.forEach((s, i) => {
+    const y = yTab + HH + i * RH, st = Core.stats(s.d, fu, S.cmpMode), r = s.rec || {};
+    const vals = ['', r.grinder, r.burr, r.setting, r.beans, fmt(st.d10), fmt(st.d50), fmt(st.d90), fmt(st.span, 2), fmt(st.fines, 1) + '%', st.n];
+    g.strokeStyle = C.line; g.lineWidth = 1.5; g.beginPath(); g.moveTo(P, y + RH); g.lineTo(W - P, y + RH); g.stroke();
+    let xx = P;
+    cols.forEach((c, j) => {
+      if (j === 0) { g.fillStyle = s.color || PALETTE[i % PALETTE.length]; g.beginPath(); g.arc(xx + 17, y + RH / 2, 9, 0, 2 * Math.PI); g.fill(); }
+      else {
+        g.fillStyle = C.ink; g.font = `${c.h === 'D50' ? '700' : '400'} 24px ${FONT}`; g.textAlign = c.n ? 'right' : 'left';
+        g.fillText(String(vals[j] == null || vals[j] === '' ? '–' : vals[j]), c.n ? xx + c.w - 12 : xx + 10, y + RH / 2, c.w - 18);
+      }
+      xx += c.w;
+    });
+  });
+  g.textAlign = 'left'; g.textBaseline = 'top'; g.fillStyle = C.mute; g.font = `20px ${FONT}`;
+  g.fillText('GrindScope · 코스터 104mm 기준 이미지 분석 · 곡선은 3구간 평활화', P, H - 44);
+  const fname = cfg.focus ? 'grind-distribution.png' : 'grind-compare.png';
+  cv.toBlob(b => downloadBlob(b, fname, how), 'image/png');
 }
 $('#btnPngCmp').onclick = () => pngCmp('save');
 $('#btnPngCmpShare').onclick = () => pngCmp('share');
@@ -1925,7 +2050,7 @@ $('#btnDot').onclick = async () => {
   const st = S.lastStats;
   const txt = JSON.stringify({
     type: 'grind', basis: S.mode, date: new Date().toISOString(),
-    grinder: $('#mGrinder').value.trim(), setting: $('#mSetting').value.trim(), beans: $('#mBeans').value.trim(),
+    grinder: $('#mGrinder').value.trim(), burr: $('#mBurr').value.trim(), setting: $('#mSetting').value.trim(), beans: $('#mBeans').value.trim(),
     d10_um: Math.round(st.d10), d50_um: Math.round(st.d50), d90_um: Math.round(st.d90),
     span: +st.span.toFixed(2), fines_pct: +st.fines.toFixed(1), fines_lt_um: finesUm(), n: st.n,
   });
