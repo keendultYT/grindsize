@@ -190,6 +190,7 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
       <button class="btn primary" id="btnSave">기록에 저장</button>
       <button class="btn" id="btnPng">PNG 저장</button>
       <button class="btn" id="btnPngShare">PNG 공유</button>
+      <label style="display:flex;gap:6px;align-items:center;margin:0;color:var(--ink);font-size:13px"><input type="checkbox" id="cGraphOnly"> 그래프만</label>
       <button class="btn" id="btnDot">Dot용 요약 복사</button>
     </div>
   </div>
@@ -1274,23 +1275,28 @@ function includedDiameters() {
 
 /* ---------- 결과 표시 ---------- */
 function statCard(val, label, cls = '') { return `<div class="stat ${cls}"><b>${val}</b><small>${label}</small></div>`; }
+// 결과 수치 카드 목록 (화면과 결과 카드 PNG가 같이 씀)
+function resultItems(st) {
+  const BL = { vol: '부피', area: '면적', num: '개수' }[S.mode];
+  return [
+    { v: fmt(st.d50) + ' µm', l: `D50 · ${BL} 중앙값`, big: true },
+    { v: fmt(st.d10) + ' / ' + fmt(st.d90), l: `D10 / D90 (µm · ${BL})` },
+    { v: fmt(st.span, 2), l: '균일도 span (낮을수록 균일)' },
+    { v: fmt(st.mean) + ' µm', l: '평균 지름 (개수 기준)' },
+    S.mode === 'vol' ? { v: fmt(st.d50n) + ' µm', l: 'D50 · 개수 기준' } : { v: fmt(st.d50v) + ' µm', l: 'D50 · 부피 기준' },
+    { v: fmt(st.d32) + ' µm', l: 'Sauter 평균 D[3,2]' },
+    { v: fmt(st.fines, 1) + '%', l: `미분 <${finesUm()}µm (${BL})` },
+    { v: st.n + ' / ' + S.res.particles.length, l: '입자 수 (포함 / 검출)' },
+  ];
+}
+
 function updateResults() {
   const d = includedDiameters(), st = Core.stats(d, finesUm(), S.mode);
   S.lastD = d; S.lastStats = st;
   const grid = $('#statsGrid');
   if (!st.n) { grid.innerHTML = '<div class="empty" style="grid-column:1/-1">포함된 입자가 없어요. 민감도를 조절해 보세요.</div>'; drawSingle(); return; }
   const nTot = S.res.particles.length, nEx = nTot - st.n;
-  const BL = { vol: '부피', area: '면적', num: '개수' }[S.mode];
-  grid.innerHTML = [
-    statCard(fmt(st.d50) + ' µm', `D50 · ${BL} 중앙값`, 'big'),
-    statCard(fmt(st.d10) + ' / ' + fmt(st.d90), `D10 / D90 (µm · ${BL})`),
-    statCard(fmt(st.span, 2), '균일도 span (낮을수록 균일)'),
-    statCard(fmt(st.mean) + ' µm', '평균 지름 (개수 기준)'),
-    S.mode === 'vol' ? statCard(fmt(st.d50n) + ' µm', 'D50 · 개수 기준') : statCard(fmt(st.d50v) + ' µm', 'D50 · 부피 기준'),
-    statCard(fmt(st.d32) + ' µm', 'Sauter 평균 D[3,2]'),
-    statCard(fmt(st.fines, 1) + '%', `미분 <${finesUm()}µm (${BL})`),
-    statCard(st.n + ' / ' + nTot, '입자 수 (포함 / 검출)'),
-  ].join('');
+  grid.innerHTML = resultItems(st).map(it => statCard(it.v, it.l, it.big ? 'big' : '')).join('');
   const um = S.geo.mmPerPx * 1000;
   const areaPx = Math.PI * S.geo.analysis.r ** 2;
   const cover = S.res.darkPx / areaPx * 100;
@@ -1299,6 +1305,7 @@ function updateResults() {
   let extra = '';
   if (st.n < 150) extra = '<div class="warn">입자 수가 적어요. 가루를 조금 더 뿌리거나 같은 조건으로 두세 장 찍어 합치면 더 안정적이에요.</div>';
   else if (cover > 9) extra = '<div class="warn">가루가 많아서 입자가 겹쳤을 가능성이 커요. 얇게 펴서 다시 찍어보세요.</div>';
+  S.lastNotes = notes;
   $('#statsNote').innerHTML = notes.join(' · ') + extra;
   drawSingle();
 }
@@ -1840,8 +1847,58 @@ $('#fileImp').onchange = async e => {
 
 /* ---------- 분석 탭 버튼들 ---------- */
 $('#btnSave').onclick = saveRecord;
+// 결과 화면처럼 수치 카드 + 분포 그래프를 한 장으로 (세로형 1080px)
+function exportResultCard(how) {
+  const st = S.lastStats;
+  const FONT = '-apple-system,"Pretendard","Noto Sans KR",system-ui,sans-serif';
+  const C = { bg: '#ffffff', card: '#f6f3ee', ink: '#26221d', mute: '#7a7268', accent: '#8a4b1f', line: '#e5dfd6' };
+  const W = 1080, P = 48, GAP = 20, CH = 150, CW = (W - 2 * P - GAP) / 2;
+  const chartH = 640;
+  const items = resultItems(st), rows = Math.ceil(items.length / 2);
+  const title = [$('#mGrinder').value.trim(), $('#mSetting').value.trim()].filter(Boolean).join(' ') || '입자 분포';
+  const BL = { vol: '부피', area: '면적', num: '개수' }[S.mode];
+  const sub = [$('#mBeans').value.trim(), fmtDate(Date.now()), `${BL} 기준`, $('#mNote').value.trim()].filter(Boolean).join(' · ');
+  const pr = params();
+  const foot = [...(S.lastNotes || []), `감도 ${Math.round(pr.T * 100)} · 분리 ${Math.round(pr.split * 100)}`].join(' · ');
+  const yCards = 190, yNote = yCards + rows * (CH + GAP) + 6, yChart = yNote + 50, H = yChart + chartH + 90;
+
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
+  g.textBaseline = 'top'; g.textAlign = 'left';
+  g.fillStyle = C.mute; g.font = `600 26px ${FONT}`; g.fillText('GrindScope', P, P);
+  g.fillStyle = C.ink; g.font = `700 52px ${FONT}`; g.fillText(title, P, P + 38, W - 2 * P);
+  g.fillStyle = C.mute; g.font = `26px ${FONT}`; g.fillText(sub, P, P + 100, W - 2 * P);
+
+  const rr = (x, y, w, h, r) => {
+    g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+    g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+  };
+  items.forEach((it, i) => {
+    const x = P + (i % 2) * (CW + GAP), y = yCards + Math.floor(i / 2) * (CH + GAP);
+    g.fillStyle = C.card; rr(x, y, CW, CH, 22); g.fill();
+    g.fillStyle = it.big ? C.accent : C.ink; g.font = `700 ${it.big ? 56 : 48}px ${FONT}`;
+    g.fillText(it.v, x + 28, y + 26, CW - 56);
+    g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.fillText(it.l, x + 28, y + CH - 50, CW - 56);
+  });
+  g.fillStyle = C.mute; g.font = `24px ${FONT}`; g.fillText(foot, P, yNote, W - 2 * P);
+
+  const ch = document.createElement('canvas');
+  drawChart(ch, singleCfg(), {
+    w: W - 2 * P, h: chartH, dpr: 1, font: 22, lw: 3,
+    theme: { bg: C.bg, ink: C.ink, mute: C.mute, grid: '#e9e3da' },
+  });
+  g.drawImage(ch, P, yChart);
+  g.strokeStyle = C.line; g.lineWidth = 2; g.beginPath(); g.moveTo(P, H - 60); g.lineTo(W - P, H - 60); g.stroke();
+  g.fillStyle = C.mute; g.font = `22px ${FONT}`;
+  g.fillText('코스터 104mm 기준 이미지 분석 · 해상도 이하 미분은 참고용', P, H - 46, W - 2 * P);
+  const fname = ('grindscope-' + title.replace(/[\\/:*?"<>|\s]+/g, '_')).slice(0, 60) + '.png';
+  cv.toBlob(b => downloadBlob(b, fname, how), 'image/png');
+}
+
 function pngSingle(how) {
   if (!S.lastD || !S.lastD.length) return;
+  if (!$('#cGraphOnly').checked) { exportResultCard(how); return; }
   const st = S.lastStats, name = [$('#mGrinder').value, $('#mSetting').value].filter(Boolean).join(' ') || '입자 분포';
   exportChartPng(singleCfg(), `${name} — D50 ${Math.round(st.d50)}µm · span ${st.span.toFixed(2)}`, 'grind-distribution.png', how);
 }
