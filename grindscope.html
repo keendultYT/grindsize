@@ -37,7 +37,8 @@ header .install{margin-left:auto;align-self:center;border:1px solid var(--accent
 /* PC·태블릿: 탭을 위쪽 제목 줄로 */
 @media (min-width:768px){
   body{padding-bottom:32px}
-  header{align-items:center;padding-left:max(16px,calc((100vw - 980px) / 2 + 16px));padding-right:max(16px,calc((100vw - 980px) / 2 + 16px))}
+  header,body .status{padding-left:max(16px,calc((100vw - 980px) / 2 + 16px));padding-right:max(16px,calc((100vw - 980px) / 2 + 16px))}
+  header{align-items:center}
   header nav.tabs{position:static;margin-left:auto;background:none;border:0;padding:0;gap:4px;z-index:auto}
   header nav.tabs button{flex:none;padding:6px 16px;border-radius:999px;font-size:14px}
   header nav.tabs button:hover{background:var(--panel)}
