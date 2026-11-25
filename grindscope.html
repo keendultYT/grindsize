@@ -78,6 +78,8 @@ summary{cursor:pointer;color:var(--mute);font-size:13px}
 table.cmp{width:100%;border-collapse:collapse;font-size:13px}
 table.cmp th,table.cmp td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 table.cmp th:first-child,table.cmp td:first-child{text-align:left}
+table.cmp tr[data-id]{cursor:pointer}
+table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);font-weight:600}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .hidden{display:none!important}
 .empty{color:var(--mute);text-align:center;padding:30px 10px}
@@ -186,7 +188,8 @@ table.cmp th:first-child,table.cmp td:first-child{text-align:left}
     <datalist id="dlGrinder"></datalist>
     <div class="btns" style="margin-top:12px">
       <button class="btn primary" id="btnSave">기록에 저장</button>
-      <button class="btn" id="btnPng">분포 그래프 PNG</button>
+      <button class="btn" id="btnPng">PNG 저장</button>
+      <button class="btn" id="btnPngShare">PNG 공유</button>
       <button class="btn" id="btnDot">Dot용 요약 복사</button>
     </div>
   </div>
@@ -224,7 +227,7 @@ table.cmp th:first-child,table.cmp td:first-child{text-align:left}
       <div><span class="seg" id="segCmpKind"><button data-k="dist" aria-pressed="true">분포</button><button data-k="cum" aria-pressed="false">누적</button></span></div>
     </div>
     <div class="chart-wrap" style="margin-top:10px"><canvas id="chartCmp" height="340"></canvas></div>
-    <div class="btns" style="margin-top:8px"><button class="btn" id="btnPngCmp">비교 그래프 PNG</button></div>
+    <div class="btns" style="margin-top:8px"><button class="btn" id="btnPngCmp">PNG 저장</button><button class="btn" id="btnPngCmpShare">PNG 공유</button></div>
     <div style="overflow-x:auto;margin-top:12px"><table class="cmp" id="cmpTable"></table></div>
     <div class="hint" style="margin-top:8px" id="cmpNote"></div>
   </div>
@@ -1340,7 +1343,7 @@ function drawChart(cv, cfg, opt = {}) {
   const nb = edges.length - 1;
 
   const legendRows = series.length > 1 ? Math.ceil(series.length / (cssW > 520 ? 3 : 2)) : 0;
-  const m = { l: 46 * (FS / 12), r: (cfg.showCum || kind === 'cum') ? 44 * (FS / 12) : 16, t: 18 + legendRows * (FS + 8), b: 42 * (FS / 12) };
+  const m = { l: 46 * (FS / 12), r: (cfg.showCum || kind === 'cum') ? 44 * (FS / 12) : 16, t: 18 + legendRows * (FS + 8) + (opt.title ? FS + 18 : 0), b: 42 * (FS / 12) };
   const pw = cssW - m.l - m.r, ph = cssH - m.t - m.b;
   const la = Math.log(edges[0]), lb = Math.log(edges[nb]);
   const X = v => m.l + (Math.log(v) - la) / (lb - la) * pw;
@@ -1457,7 +1460,7 @@ function drawChart(cv, cfg, opt = {}) {
   if (opt.title) {
     g.fillStyle = theme.ink; g.textAlign = 'left'; g.textBaseline = 'top';
     g.font = `600 ${FS + 4}px -apple-system,"Pretendard","Noto Sans KR",system-ui,sans-serif`;
-    g.fillText(opt.title, m.l, 6);
+    g.fillText(opt.title, m.l, 10);
   }
 }
 
@@ -1490,7 +1493,7 @@ function metaLabel(m) {
   return t || m.beans || (m.ts ? fmtDate(m.ts) : '');
 }
 
-async function downloadBlob(blob, name) {
+async function downloadBlob(blob, name, how = 'save') {
   // 링크 페이지(아티팩트)에서는 직접 내려받기가 막혀 있어서 '저장 요청' 권한을 먼저 써요
   try {
     const dl = (window.claude && window.claude.use) ? await window.claude.use('downloads') : null;
@@ -1500,9 +1503,8 @@ async function downloadBlob(blob, name) {
       return;
     }
   } catch (e) { /* 일반 방식으로 */ }
-  const coarse = matchMedia('(pointer:coarse)').matches;
   const file = new File([blob], name, { type: blob.type });
-  if (coarse && navigator.canShare && navigator.canShare({ files: [file] })) {
+  if (how === 'share' && navigator.canShare && navigator.canShare({ files: [file] })) {
     navigator.share({ files: [file], title: name }).catch(() => { });
     return;
   }
@@ -1511,13 +1513,13 @@ async function downloadBlob(blob, name) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
-function exportChartPng(cfg, title, name) {
+function exportChartPng(cfg, title, name, how) {
   const cv = document.createElement('canvas');
   drawChart(cv, cfg, {
     w: 1600, h: 900, dpr: 1, font: 20, lw: 3, title,
     theme: { bg: '#ffffff', ink: '#26221d', mute: '#7a7268', grid: '#e9e3da' },
   });
-  cv.toBlob(b => downloadBlob(b, name), 'image/png');
+  cv.toBlob(b => downloadBlob(b, name, how), 'image/png');
 }
 
 /* =========================================================
@@ -1771,6 +1773,13 @@ function cmpSeries() {
   const recs = S.records.filter(r => S.sel.has(r.id)).sort((a, b) => a.ts - b.ts).slice(0, 8);
   return recs.map((r, i) => ({ d: r.d, label: metaLabel(r) || fmtDate(r.ts), color: PALETTE[i % PALETTE.length], rec: r }));
 }
+// 비교 탭 그래프 설정: 기록이 1개이거나 표에서 하나를 누르면 그 기록만 막대 그래프로
+function cmpCfg(ser) {
+  const one = ser.length === 1 ? ser[0] : ser.find(x => x.rec.id === S.cmpFocus);
+  if (!one) return { series: ser, mode: S.cmpMode, kind: S.cmpKind };
+  const dist = S.cmpKind === 'dist';
+  return { series: [one], mode: S.cmpMode, kind: S.cmpKind, bars: dist, showCum: dist, focus: one };
+}
 function renderCompare() {
   const ser = cmpSeries();
   const note = $('#cmpNote'), tbl = $('#cmpTable');
@@ -1778,14 +1787,17 @@ function renderCompare() {
     tbl.innerHTML = ''; note.textContent = '기록 탭에서 비교할 기록을 선택해주세요.';
     drawChart($('#chartCmp'), { series: [], mode: S.cmpMode, kind: S.cmpKind }); return;
   }
-  note.textContent = (S.sel.size > 8 ? '최대 8개까지 겹쳐 그려요. ' : '') + '곡선은 보기 쉽도록 3구간 평활화했어요. ▲는 D50 위치예요.';
-  drawChart($('#chartCmp'), { series: ser, mode: S.cmpMode, kind: S.cmpKind });
+  const cfg = cmpCfg(ser);
+  note.textContent = (S.sel.size > 8 ? '최대 8개까지 겹쳐 그려요. ' : '') +
+    (cfg.focus ? (ser.length > 1 ? `'${cfg.focus.label}'만 보는 중이에요. 같은 줄을 다시 누르면 겹친 곡선으로 돌아가요.` : '기록 1개라서 분포 그래프로 보여줘요. ▲는 D50 위치예요.')
+      : '곡선은 보기 쉽도록 3구간 평활화했어요. ▲는 D50 위치예요. 표에서 한 줄을 누르면 그 기록만 볼 수 있어요.');
+  drawChart($('#chartCmp'), cfg);
   const fu = finesUm();
   const BLc = { vol: '부피', area: '면적', num: '개수' }[S.cmpMode];
   tbl.innerHTML = `<tr><th>기록 (${BLc} 기준)</th><th>입자수</th><th>D10</th><th>D50</th><th>D90</th><th>평균</th><th>span</th><th>미분&lt;${fu}µm</th></tr>` +
     ser.map(s => {
       const st = Core.stats(s.d, fu, S.cmpMode);
-      return `<tr><td><span class="dot" style="background:${s.color}"></span>${esc(s.label)}</td><td>${st.n}</td><td>${fmt(st.d10)}</td><td><b>${fmt(st.d50)}</b></td><td>${fmt(st.d90)}</td><td>${fmt(st.mean)}</td><td>${fmt(st.span, 2)}</td><td>${fmt(st.fines, 1)}%</td></tr>`;
+      return `<tr data-id="${esc(String(s.rec.id))}"${cfg.focus === s && ser.length > 1 ? ' class="on"' : ''}><td><span class="dot" style="background:${s.color}"></span>${esc(s.label)}</td><td>${st.n}</td><td>${fmt(st.d10)}</td><td><b>${fmt(st.d50)}</b></td><td>${fmt(st.d90)}</td><td>${fmt(st.mean)}</td><td>${fmt(st.span, 2)}</td><td>${fmt(st.fines, 1)}%</td></tr>`;
     }).join('');
 }
 
@@ -1828,14 +1840,28 @@ $('#fileImp').onchange = async e => {
 
 /* ---------- 분석 탭 버튼들 ---------- */
 $('#btnSave').onclick = saveRecord;
-$('#btnPng').onclick = () => {
+function pngSingle(how) {
   if (!S.lastD || !S.lastD.length) return;
   const st = S.lastStats, name = [$('#mGrinder').value, $('#mSetting').value].filter(Boolean).join(' ') || '입자 분포';
-  exportChartPng(singleCfg(), `${name} — D50 ${Math.round(st.d50)}µm · span ${st.span.toFixed(2)}`, 'grind-distribution.png');
-};
-$('#btnPngCmp').onclick = () => {
+  exportChartPng(singleCfg(), `${name} — D50 ${Math.round(st.d50)}µm · span ${st.span.toFixed(2)}`, 'grind-distribution.png', how);
+}
+$('#btnPng').onclick = () => pngSingle('save');
+$('#btnPngShare').onclick = () => pngSingle('share');
+function pngCmp(how) {
   const ser = cmpSeries(); if (!ser.length) return;
-  exportChartPng({ series: ser, mode: S.cmpMode, kind: S.cmpKind }, '그라인더 입자 분포 비교', 'grind-compare.png');
+  const cfg = cmpCfg(ser);
+  if (cfg.focus) {
+    const st = Core.stats(cfg.focus.d, finesUm(), S.cmpMode);
+    exportChartPng(cfg, `${cfg.focus.label} — D50 ${Math.round(st.d50)}µm · span ${st.span.toFixed(2)}`, 'grind-distribution.png', how);
+  } else exportChartPng(cfg, '그라인더 입자 분포 비교', 'grind-compare.png', how);
+}
+$('#btnPngCmp').onclick = () => pngCmp('save');
+$('#btnPngCmpShare').onclick = () => pngCmp('share');
+$('#cmpTable').onclick = e => {
+  const tr = e.target.closest('tr[data-id]'); if (!tr || cmpSeries().length < 2) return;
+  const id = cmpSeries().find(x => String(x.rec.id) === tr.dataset.id)?.rec.id;
+  S.cmpFocus = S.cmpFocus === id ? null : id;
+  renderCompare();
 };
 $('#btnDot').onclick = async () => {
   if (!S.lastStats || !S.lastStats.n) return;
