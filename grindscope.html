@@ -30,10 +30,22 @@ body{padding-bottom:calc(72px + env(safe-area-inset-bottom))}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));display:flex;align-items:baseline;gap:10px}
 header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
-header span{color:var(--mute);font-size:12px}
+header > span{color:var(--mute);font-size:12px}
 header .install{margin-left:auto;align-self:center;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer}
 .modal .box ol{margin:4px 0 8px;padding-left:20px;line-height:1.7}
-@media (max-width:480px){header:has(.install:not(.hidden)) span{display:none}}
+@media (max-width:480px){header:has(.install:not(.hidden)) > span{display:none}}
+/* PC·태블릿: 탭을 위쪽 제목 줄로 */
+@media (min-width:768px){
+  body{padding-bottom:32px}
+  header{align-items:center;padding-left:max(16px,calc((100vw - 980px) / 2 + 16px));padding-right:max(16px,calc((100vw - 980px) / 2 + 16px))}
+  header nav.tabs{position:static;margin-left:auto;background:none;border:0;padding:0;gap:4px;z-index:auto}
+  header nav.tabs button{flex:none;padding:6px 16px;border-radius:999px;font-size:14px}
+  header nav.tabs button:hover{background:var(--panel)}
+  header nav.tabs button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink)}
+  header nav.tabs button[aria-selected="true"] span{color:inherit}
+  header .install{margin-left:8px}
+  .toast{bottom:32px}
+}
 main{max-width:980px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-right,0px)) 14px max(16px,env(safe-area-inset-left,0px))}
 nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;background:var(--panel);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs button{flex:1;padding:12px 0 10px;border:0;background:none;color:var(--mute);font:inherit;font-size:13px;font-weight:600}
@@ -109,7 +121,7 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
 </style>
 </head>
 <body>
-<header><h1>GrindScope</h1><span>코스터 위 가루 사진 → 입자 크기·분포</span><button class="install hidden" id="btnInstall" type="button">＋ 앱 설치</button></header>
+<header><h1>GrindScope</h1><span>코스터 위 가루 사진 → 입자 크기·분포</span><nav class="tabs"><button data-tab="analyze" aria-selected="true">분석</button><button data-tab="records" aria-selected="false">기록 <span id="recCount"></span></button><button data-tab="compare" aria-selected="false">비교</button></nav><button class="install hidden" id="btnInstall" type="button">＋ 앱 설치</button></header>
 <div class="status" id="status">⏳ 앱 준비 중…</div>
 <main>
 
@@ -259,11 +271,6 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
 
 </main>
 
-<nav class="tabs">
-  <button data-tab="analyze" aria-selected="true">분석</button>
-  <button data-tab="records" aria-selected="false">기록 <span id="recCount"></span></button>
-  <button data-tab="compare" aria-selected="false">비교</button>
-</nav>
 <div class="toast" id="toast"></div>
 <div class="modal hidden" id="modal"><div class="box" id="modalBox"></div></div>
 
