@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>GrindScope 입자 분석</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#8a4b1f">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="GrindScope">
 <style>
 :root{
   --bg:#f6f3ee; --panel:#ffffff; --ink:#26221d; --mute:#7a7268; --line:#e5dfd6;
@@ -24,6 +31,9 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));display:flex;align-items:baseline;gap:10px}
 header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.01em}
 header span{color:var(--mute);font-size:12px}
+header .install{margin-left:auto;align-self:center;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer}
+.modal .box ol{margin:4px 0 8px;padding-left:20px;line-height:1.7}
+@media (max-width:480px){header:has(.install:not(.hidden)) span{display:none}}
 main{max-width:980px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-right,0px)) 14px max(16px,env(safe-area-inset-left,0px))}
 nav.tabs{position:fixed;bottom:0;left:0;right:0;z-index:40;background:var(--panel);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
 nav.tabs button{flex:1;padding:12px 0 10px;border:0;background:none;color:var(--mute);font:inherit;font-size:13px;font-weight:600}
@@ -99,7 +109,7 @@ table.cmp tr.on td{background:color-mix(in srgb,currentColor 9%,transparent);fon
 </style>
 </head>
 <body>
-<header><h1>GrindScope</h1><span>코스터 위 가루 사진 → 입자 크기·분포</span></header>
+<header><h1>GrindScope</h1><span>코스터 위 가루 사진 → 입자 크기·분포</span><button class="install hidden" id="btnInstall" type="button">＋ 앱 설치</button></header>
 <div class="status" id="status">⏳ 앱 준비 중…</div>
 <main>
 
@@ -1539,6 +1549,42 @@ addEventListener('scroll', e => { if (suggBox && !suggBox.contains(e.target)) su
 addEventListener('resize', () => suggPlace && suggPlace());
 document.addEventListener('pointerdown', e => { if (suggBox && !suggBox.contains(e.target) && e.target !== suggOwner) hideSuggest(); }, true);
 if (window.visualViewport) visualViewport.addEventListener('resize', () => suggPlace && suggPlace());
+
+/* ---------- 앱처럼 설치 (홈 화면에 추가) ---------- */
+(() => {
+  const btn = $('#btnInstall');
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const web = location.protocol === 'https:' || location.hostname === 'localhost';
+  if ('serviceWorker' in navigator && web) navigator.serviceWorker.register('sw.js').catch(() => { });
+  if (standalone || !web) return;          // 이미 앱으로 열었거나, 받은 파일로 열면 설치 불가
+  let deferred = null;
+  btn.classList.remove('hidden');
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; });
+  addEventListener('appinstalled', () => { btn.classList.add('hidden'); toast('앱으로 설치했어요. 홈 화면에서 열 수 있어요'); });
+  btn.onclick = async () => {
+    if (deferred) {
+      deferred.prompt();
+      const r = await deferred.userChoice.catch(() => null);
+      deferred = null;
+      if (r && r.outcome === 'accepted') btn.classList.add('hidden');
+      return;
+    }
+    const ua = navigator.userAgent;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const steps = ios
+      ? ['Safari에서 이 페이지를 열어요 (다른 앱 안의 브라우저면 Safari로 열기)', '아래쪽 공유 버튼(□↑)을 눌러요', '"홈 화면에 추가"를 눌러요']
+      : /SamsungBrowser/.test(ua)
+        ? ['아래쪽 메뉴(≡)를 눌러요', '"현재 페이지 추가" → "홈 화면"을 눌러요']
+        : ['오른쪽 위 메뉴(⋮)를 눌러요', '"앱 설치" 또는 "홈 화면에 추가"를 눌러요'];
+    const m = $('#modal'), box = $('#modalBox');
+    box.innerHTML = `<h2>앱처럼 설치하기</h2><ol>${steps.map(t => `<li>${esc(t)}</li>`).join('')}</ol>
+      <p class="hint">설치하면 주소창 없이 앱처럼 열리고, 인터넷이 없어도 열려요. 기록은 이 브라우저의 기록과 같이 써요.</p>
+      <div class="btns" style="margin-top:12px"><button class="btn primary" id="mOk">확인</button></div>`;
+    m.classList.remove('hidden');
+    $('#mOk').onclick = () => m.classList.add('hidden');
+    m.onclick = e => { if (e.target === m) m.classList.add('hidden'); };
+  };
+})();
 
 function askModal({ title, message, fields = [], ok = '확인', danger = false }) {
   return new Promise(res => {
